@@ -4,6 +4,29 @@ A voting smart contract built around one question: **what can go wrong when vote
 
 Everything on Ethereum is public, so a naive voting contract shows every vote the moment it is cast. Later voters can see the running tally and vote strategically. This project fixes that with a commit-reveal scheme, restricts voting to an allowlist using a Merkle tree, and tests each defence by attacking it.
 
+## Live demo on Sepolia
+
+The contract is deployed and source-verified on the Sepolia test network:
+[`0x5DDaF364D5E36E2CF15043848b6b1185d93B6384`](https://sepolia.etherscan.io/address/0x5DDaF364D5E36E2CF15043848b6b1185d93B6384#code)
+
+A full election was run against it with three allowlisted voters using the web frontend.
+
+**1. Commit phase.** All three votes are on-chain, but only as hashes. The results are empty because nobody, including the contract, knows the votes yet.
+
+![Commit phase: three votes committed, results hidden](docs/2-commit-phase.png)
+
+**2. Reveal phase.** Each voter opens their commitment and the tally fills in.
+
+![Reveal phase: all three votes revealed](docs/3-reveal-phase.png)
+
+**3. Finished.** The result is final. This run ended in a three-way tie, which `winners()` reports by returning every tied candidate.
+
+![Finished: final result](docs/4-finished.png)
+
+**Tests.** 23 unit, attack and fuzz tests pass.
+
+![Foundry test run: 23 passed](docs/1-tests.png)
+
 ## How it works
 
 | Phase | What voters do | What the chain shows |

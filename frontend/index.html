@@ -119,6 +119,10 @@
       <button id="connectBtn">Connect MetaMask</button>
       <span id="accountLabel" class="mono muted">Not connected</span>
     </div>
+    <div id="switchRow" class="note warn hidden">
+      MetaMask is not on the Sepolia test network.
+      <button id="switchBtn" class="secondary" style="margin-left:8px">Switch to Sepolia</button>
+    </div>
     <div class="row" style="margin-top:12px">
       <div class="grow"><input id="addressInput" type="text" placeholder="Election contract address (0x...)" aria-label="Election contract address" spellcheck="false"></div>
       <button id="loadBtn" class="secondary" disabled>Load election</button>
@@ -194,6 +198,8 @@ const ERROR_TEXT = {
 };
 
 const ZERO = ethers.ZeroHash;
+const SEPOLIA_ID = 11155111n;
+const SEPOLIA_HEX = "0xaa36a7";
 const $ = (id) => document.getElementById(id);
 
 const state = {
@@ -286,6 +292,7 @@ async function connect() {
     $("connectBtn").disabled = true;
     $("loadBtn").disabled = false;
     note("connNote", "", "");
+    $("switchRow").classList.toggle("hidden", state.chainId === SEPOLIA_ID);
 
     window.ethereum.on("accountsChanged", () => location.reload());
     window.ethereum.on("chainChanged", () => location.reload());
@@ -293,6 +300,32 @@ async function connect() {
     if ($("addressInput").value.trim()) await loadElection();
   } catch (e) {
     note("connNote", "bad", errorText(e));
+  }
+}
+
+// Asks MetaMask to change network. The page reloads on the chainChanged event.
+async function switchToSepolia() {
+  try {
+    await window.ethereum.request({ method: "wallet_switchEthereumChain", params: [{ chainId: SEPOLIA_HEX }] });
+  } catch (e) {
+    if (e?.code === 4902) {
+      try {
+        await window.ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: SEPOLIA_HEX,
+            chainName: "Sepolia",
+            nativeCurrency: { name: "Sepolia Ether", symbol: "ETH", decimals: 18 },
+            rpcUrls: ["https://ethereum-sepolia-rpc.publicnode.com"],
+            blockExplorerUrls: ["https://sepolia.etherscan.io"],
+          }],
+        });
+      } catch (e2) {
+        note("connNote", "bad", errorText(e2));
+      }
+    } else {
+      note("connNote", "bad", errorText(e));
+    }
   }
 }
 
@@ -558,6 +591,7 @@ async function doReveal(btn, candidateId, salt) {
 
 $("connectBtn").addEventListener("click", connect);
 $("loadBtn").addEventListener("click", loadElection);
+$("switchBtn").addEventListener("click", switchToSepolia);
 
 const fromUrl = new URLSearchParams(location.search).get("address");
 let last = null;
@@ -568,6 +602,14 @@ fetch("proofs.json")
   .then((r) => (r.ok ? r.json() : null))
   .then((p) => { if (p && typeof p.proofs === "object") { state.proofs = p; if (state.contract) renderVote(); } })
   .catch(() => {});
+
+// Reconnect automatically if this site was already approved in MetaMask,
+// so switching account or network does not need another click.
+if (window.ethereum) {
+  window.ethereum.request({ method: "eth_accounts" })
+    .then((accounts) => { if (accounts.length) connect(); })
+    .catch(() => {});
+}
 
 setInterval(tick, 1000);
 setInterval(refresh, 15000);
