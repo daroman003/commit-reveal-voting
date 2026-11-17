@@ -138,21 +138,25 @@ contract Election {
     function winners() external view returns (uint256[] memory ids) {
         _requirePhase(Phase.Finished);
 
+        // Read the tally from storage once instead of on every loop iteration.
+        uint256[] memory tally = _tally;
+        uint256 n = tally.length;
+
         uint256 best = 0;
         uint256 count = 0;
-        for (uint256 i = 0; i < _tally.length; i++) {
-            if (_tally[i] > best) {
-                best = _tally[i];
+        for (uint256 i = 0; i < n; i++) {
+            if (tally[i] > best) {
+                best = tally[i];
                 count = 1;
-            } else if (_tally[i] == best) {
+            } else if (tally[i] == best) {
                 count++;
             }
         }
 
         ids = new uint256[](count);
         uint256 j = 0;
-        for (uint256 i = 0; i < _tally.length; i++) {
-            if (_tally[i] == best) ids[j++] = i;
+        for (uint256 i = 0; i < n; i++) {
+            if (tally[i] == best) ids[j++] = i;
         }
     }
 

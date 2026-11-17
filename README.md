@@ -66,7 +66,12 @@ pip install slither-analyzer
 slither .
 ```
 
-Record the findings here, including any you judge to be false positives and why.
+Slither 0.11.6 (102 detectors) run with `slither . --filter-paths "lib|test|script"` reported 3 results, none of them high or medium severity:
+
+| Detector | Location | Assessment |
+|---|---|---|
+| `timestamp` | `phase()` compares `block.timestamp` to the two deadlines | **Accepted by design.** Phases have to be time-based. A validator can shift a block timestamp by a few seconds at most, which only matters for a vote sent right at a deadline and cannot change or expose any vote. Listed under known limitations above. |
+| `cache-array-length` (2 results) | Both loops in `winners()` read `_tally.length` from storage on every iteration | **Fixed.** `winners()` now copies the tally into memory once and loops over that. This was a gas optimization, not a security issue. |
 
 ## Build the voter allowlist
 
@@ -87,6 +92,19 @@ forge script script/Deploy.s.sol --rpc-url $SEPOLIA_RPC_URL --broadcast \
 ```
 
 Use a Foundry keystore (`cast wallet import`) rather than putting a private key in `.env`.
+
+## Web frontend
+
+`frontend/index.html` is a single-page app (ethers.js v6, no build step) for voting with MetaMask. It generates the salt and computes the commitment in the browser, so the vote is never sent to an RPC node before the reveal. Candidate names read from the chain are rendered as text only, never as HTML.
+
+```bash
+cp proofs.json frontend/proofs.json
+py -m http.server 8000 --directory frontend
+```
+
+Then open `http://localhost:8000/?address=<election address>`. MetaMask does not work on pages opened directly from disk, which is why the local server is needed.
+
+The salt is kept in the browser's local storage and shown to the voter to back up. Clearing browser data before revealing loses the vote unless the salt was saved.
 
 ## Voting from the command line
 
@@ -114,6 +132,7 @@ src/Election.sol        the contract
 test/Election.t.sol     unit, attack and fuzz tests
 script/Deploy.s.sol     deployment script
 tools/merkle.js         builds the allowlist root and proofs
+frontend/index.html     MetaMask voting page
 ```
 
 ## License
