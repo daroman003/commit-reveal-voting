@@ -9,6 +9,8 @@ Everything on Ethereum is public, so a naive voting contract shows every vote th
 The contract is deployed and source-verified on the Sepolia test network:
 [`0x5DDaF364D5E36E2CF15043848b6b1185d93B6384`](https://sepolia.etherscan.io/address/0x5DDaF364D5E36E2CF15043848b6b1185d93B6384#code)
 
+**Live page:** https://daroman003.github.io/commit-reveal-voting/ (opens the finished election in read-only mode, no wallet needed)
+
 A full election was run against it with three allowlisted voters using the web frontend.
 
 **1. Commit phase.** All three votes are on-chain, but only as hashes. The results are empty because nobody, including the contract, knows the votes yet.

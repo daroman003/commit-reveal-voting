@@ -125,7 +125,7 @@
     </div>
     <div class="row" style="margin-top:12px">
       <div class="grow"><input id="addressInput" type="text" placeholder="Election contract address (0x...)" aria-label="Election contract address" spellcheck="false"></div>
-      <button id="loadBtn" class="secondary" disabled>Load election</button>
+      <button id="loadBtn" class="secondary">Load election</button>
     </div>
     <p id="connNote" class="note hidden" role="status"></p>
   </section>
@@ -200,6 +200,9 @@ const ERROR_TEXT = {
 const ZERO = ethers.ZeroHash;
 const SEPOLIA_ID = 11155111n;
 const SEPOLIA_HEX = "0xaa36a7";
+// Shown by default so visitors without a wallet can still see a real election.
+const DEFAULT_ELECTION = "0x5DDaF364D5E36E2CF15043848b6b1185d93B6384";
+const PUBLIC_RPC = "https://ethereum-sepolia-rpc.publicnode.com";
 const $ = (id) => document.getElementById(id);
 
 const state = {
@@ -270,6 +273,7 @@ function computeCommitment(candidateId, salt) {
 }
 
 function myProof() {
+  if (!state.account) return null;
   return state.proofs?.proofs?.[state.account.toLowerCase()] ?? null;
 }
 
@@ -335,6 +339,11 @@ async function loadElection() {
     note("connNote", "bad", "That is not a valid contract address.");
     return;
   }
+  // Without a wallet, read the chain through a public Sepolia node (view only).
+  if (!state.account) {
+    state.provider = new ethers.JsonRpcProvider(PUBLIC_RPC, 11155111, { staticNetwork: true });
+    state.chainId = SEPOLIA_ID;
+  }
   try {
     const code = await state.provider.getCode(address);
     if (code === "0x") {
@@ -342,7 +351,8 @@ async function loadElection() {
       return;
     }
     state.address = ethers.getAddress(address);
-    state.contract = new ethers.Contract(state.address, ABI, state.signer);
+    state.contract = new ethers.Contract(state.address, ABI, state.signer ?? state.provider);
+    state.voteKey = null;
 
     const count = Number(await state.contract.candidateCount());
     state.candidates = [];
@@ -351,7 +361,7 @@ async function loadElection() {
     state.revealDeadline = Number(await state.contract.revealDeadline());
 
     try { localStorage.setItem("crv:lastAddress", state.address); } catch {}
-    note("connNote", "ok", "Election loaded.");
+    note("connNote", "ok", state.account ? "Election loaded." : "Election loaded in read-only mode. Connect MetaMask to vote.");
     ["statusCard", "voteCard", "resultsCard"].forEach((id) => $(id).classList.remove("hidden"));
     $("commitEnds").textContent = formatTime(state.commitDeadline);
     $("revealEnds").textContent = formatTime(state.revealDeadline);
@@ -369,7 +379,8 @@ async function refresh() {
     const c = state.contract;
     const [phase, committed, revealedCount, tally, mine, mineRevealed] = await Promise.all([
       c.phase(), c.totalCommitted(), c.totalRevealed(), c.results(),
-      c.commitments(state.account), c.revealed(state.account),
+      state.account ? c.commitments(state.account) : ZERO,
+      state.account ? c.revealed(state.account) : false,
     ]);
     state.phase = Number(phase);
     state.myCommitment = mine;
@@ -386,7 +397,7 @@ async function refresh() {
     renderResults(tally.map(Number), winners);
     // Only rebuild the voting form when something changed, so the periodic
     // refresh does not wipe a candidate the voter has just selected.
-    const voteKey = [state.phase, state.myCommitment, state.myRevealed, Boolean(myProof())].join("|");
+    const voteKey = [state.account, state.phase, state.myCommitment, state.myRevealed, Boolean(myProof())].join("|");
     if (voteKey !== state.voteKey) {
       state.voteKey = voteKey;
       renderVote();
@@ -433,6 +444,12 @@ function renderResults(tally, winners) {
 function renderVote() {
   const body = $("voteBody");
   body.replaceChildren();
+  if (!state.account) {
+    body.append(el("p", { text: state.phase === 2
+      ? "Voting is closed. You are viewing the final result in read-only mode."
+      : "You are viewing in read-only mode. Connect MetaMask to vote." }));
+    return;
+  }
   const hasCommitted = state.myCommitment !== ZERO;
   const opening = loadOpening();
 
@@ -596,7 +613,7 @@ $("switchBtn").addEventListener("click", switchToSepolia);
 const fromUrl = new URLSearchParams(location.search).get("address");
 let last = null;
 try { last = localStorage.getItem("crv:lastAddress"); } catch {}
-$("addressInput").value = fromUrl || last || "";
+$("addressInput").value = fromUrl || last || DEFAULT_ELECTION;
 
 fetch("proofs.json")
   .then((r) => (r.ok ? r.json() : null))
@@ -605,10 +622,13 @@ fetch("proofs.json")
 
 // Reconnect automatically if this site was already approved in MetaMask,
 // so switching account or network does not need another click.
+// Otherwise show the election straight away in read-only mode.
 if (window.ethereum) {
   window.ethereum.request({ method: "eth_accounts" })
-    .then((accounts) => { if (accounts.length) connect(); })
-    .catch(() => {});
+    .then((accounts) => (accounts.length ? connect() : loadElection()))
+    .catch(() => loadElection());
+} else {
+  loadElection();
 }
 
 setInterval(tick, 1000);
