@@ -1,0 +1,11 @@
+{
+  "name": "commit-reveal-voting",
+  "private": true,
+  "description": "Allowlist tooling for the commit-reveal Election contract",
+  "scripts": {
+    "merkle": "node tools/merkle.js voters.json"
+  },
+  "dependencies": {
+    "@openzeppelin/merkle-tree": "^1.0.7"
+  }
+}
