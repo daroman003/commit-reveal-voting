@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Commit-Reveal Voting</title>
+<style>
+  :root {
+    --paper: #f6f4ee;
+    --card: #fffdf8;
+    --ink: #1c1f1a;
+    --muted: #6b7065;
+    --line: #d9d5c8;
+    --accent: #1f5c3f;
+    --accent-soft: #e3efe7;
+    --warn: #8a4b12;
+    --warn-soft: #f7ead9;
+    --bad: #8f2a2a;
+    --bad-soft: #f6e1e1;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 16px/1.5 system-ui, "Segoe UI", sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 20px 64px; }
+  header { margin-bottom: 24px; }
+  h1 { font-size: 1.6rem; margin: 0 0 4px; letter-spacing: -0.01em; }
+  header p { margin: 0; color: var(--muted); }
+  h2 {
+    font: 600 0.78rem var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    margin: 0 0 12px;
+  }
+  section {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .grow { flex: 1 1 260px; }
+  input[type="text"], select {
+    width: 100%;
+    padding: 9px 11px;
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    background: #fff;
+    font: 0.9rem var(--mono);
+    color: var(--ink);
+  }
+  button {
+    padding: 9px 16px;
+    border: 1px solid var(--accent);
+    border-radius: 7px;
+    background: var(--accent);
+    color: #fff;
+    font: 600 0.92rem system-ui, "Segoe UI", sans-serif;
+    cursor: pointer;
+  }
+  button.secondary { background: transparent; color: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+  .mono { font-family: var(--mono); font-size: 0.85rem; word-break: break-all; }
+  .muted { color: var(--muted); }
+  .small { font-size: 0.88rem; }
+  .note { padding: 10px 12px; border-radius: 7px; margin: 12px 0 0; font-size: 0.92rem; }
+  .note.ok { background: var(--accent-soft); color: var(--accent); }
+  .note.warn { background: var(--warn-soft); color: var(--warn); }
+  .note.bad { background: var(--bad-soft); color: var(--bad); }
+  .phases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+  .phase {
+    border: 1px solid var(--line);
+    border-radius: 7px;
+    padding: 8px 10px;
+    font: 600 0.8rem var(--mono);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    text-align: center;
+  }
+  .phase.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 0; }
+  dt { color: var(--muted); font-size: 0.9rem; }
+  dd { margin: 0; }
+  .choices { display: grid; gap: 8px; margin: 0 0 14px; padding: 0; border: 0; }
+  .choice {
+    display: flex; align-items: center; gap: 10px;
+    border: 1px solid var(--line); border-radius: 7px; padding: 10px 12px;
+    cursor: pointer;
+  }
+  .choice:has(input:checked) { border-color: var(--accent); background: var(--accent-soft); }
+  .bar-row { margin-bottom: 10px; }
+  .bar-label { display: flex; justify-content: space-between; font-size: 0.92rem; margin-bottom: 3px; }
+  .bar { height: 10px; background: #ebe8dd; border-radius: 5px; overflow: hidden; }
+  .bar > div { height: 100%; background: var(--accent); width: 0; transition: width 0.3s; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Commit-Reveal Voting</h1>
+    <p>Votes stay hidden on-chain until the reveal phase.</p>
+  </header>
+
+  <section>
+    <h2>Connection</h2>
+    <div class="row">
+      <button id="connectBtn">Connect MetaMask</button>
+      <span id="accountLabel" class="mono muted">Not connected</span>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <div class="grow"><input id="addressInput" type="text" placeholder="Election contract address (0x...)" aria-label="Election contract address" spellcheck="false"></div>
+      <button id="loadBtn" class="secondary" disabled>Load election</button>
+    </div>
+    <p id="connNote" class="note hidden" role="status"></p>
+  </section>
+
+  <section id="statusCard" class="hidden">
+    <h2>Status</h2>
+    <div class="phases">
+      <div class="phase" data-phase="0">1. Commit</div>
+      <div class="phase" data-phase="1">2. Reveal</div>
+      <div class="phase" data-phase="2">3. Finished</div>
+    </div>
+    <dl>
+      <dt>Time left in phase</dt><dd id="countdown">-</dd>
+      <dt>Commit phase ends</dt><dd id="commitEnds">-</dd>
+      <dt>Reveal phase ends</dt><dd id="revealEnds">-</dd>
+      <dt>Votes committed</dt><dd id="totalCommitted">-</dd>
+      <dt>Votes revealed</dt><dd id="totalRevealed">-</dd>
+    </dl>
+  </section>
+
+  <section id="voteCard" class="hidden">
+    <h2>Your vote</h2>
+    <div id="voteBody"></div>
+    <p id="voteNote" class="note hidden" role="status"></p>
+  </section>
+
+  <section id="resultsCard" class="hidden">
+    <h2>Results</h2>
+    <p id="resultsHint" class="muted small"></p>
+    <div id="resultsBody"></div>
+  </section>
+</main>
+
+<script type="module">
+import { ethers } from "https://cdn.jsdelivr.net/npm/ethers@6.13.4/dist/ethers.min.js";
+
+const ABI = [
+  "function commitDeadline() view returns (uint64)",
+  "function revealDeadline() view returns (uint64)",
+  "function commitments(address) view returns (bytes32)",
+  "function revealed(address) view returns (bool)",
+  "function totalCommitted() view returns (uint256)",
+  "function totalRevealed() view returns (uint256)",
+  "function phase() view returns (uint8)",
+  "function candidateCount() view returns (uint256)",
+  "function candidateName(uint256) view returns (string)",
+  "function results() view returns (uint256[])",
+  "function winners() view returns (uint256[])",
+  "function commit(bytes32 commitment, bytes32[] proof)",
+  "function reveal(uint256 candidateId, bytes32 salt)",
+  "error BadConfig()",
+  "error NotInPhase(uint8 expected, uint8 actual)",
+  "error NotEligible()",
+  "error EmptyCommitment()",
+  "error AlreadyCommitted()",
+  "error NoCommitment()",
+  "error AlreadyRevealed()",
+  "error InvalidCandidate()",
+  "error CommitmentMismatch()",
+];
+
+const ERROR_TEXT = {
+  NotInPhase: "The election is not in the right phase for that action.",
+  NotEligible: "This address is not on the voter list.",
+  AlreadyCommitted: "This address has already committed a vote.",
+  NoCommitment: "This address never committed a vote.",
+  AlreadyRevealed: "This vote has already been revealed.",
+  InvalidCandidate: "That candidate does not exist.",
+  CommitmentMismatch: "The candidate and salt do not match your commitment.",
+};
+
+const ZERO = ethers.ZeroHash;
+const $ = (id) => document.getElementById(id);
+
+const state = {
+  provider: null, signer: null, account: null, chainId: null,
+  contract: null, address: null,
+  candidates: [], commitDeadline: 0, revealDeadline: 0,
+  phase: 0, myCommitment: ZERO, myRevealed: false,
+  proofs: null, busy: false,
+};
+
+// ---------- small helpers ----------
+
+function el(tag, props = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") node.className = v;
+    else if (k === "text") node.textContent = v;
+    else node.setAttribute(k, v);
+  }
+  for (const c of children) node.append(c);
+  return node;
+}
+
+function note(id, kind, text) {
+  const n = $(id);
+  if (!text) { n.classList.add("hidden"); return; }
+  n.className = `note ${kind}`;
+  n.textContent = text;
+}
+
+function errorText(e) {
+  const name = e?.revert?.name;
+  if (name && ERROR_TEXT[name]) return ERROR_TEXT[name];
+  if (e?.code === "ACTION_REJECTED") return "You rejected the transaction in MetaMask.";
+  return e?.shortMessage || e?.message || "Something went wrong.";
+}
+
+function formatTime(ts) {
+  return new Date(Number(ts) * 1000).toLocaleString();
+}
+
+function formatDuration(seconds) {
+  if (seconds <= 0) return "0s (waiting for the next block)";
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return [d && `${d}d`, (d || h) && `${h}h`, (d || h || m) && `${m}m`, `${s}s`].filter(Boolean).join(" ");
+}
+
+function storageKey() {
+  return `crv:${state.chainId}:${state.address.toLowerCase()}:${state.account.toLowerCase()}`;
+}
+function loadOpening() {
+  try { return JSON.parse(localStorage.getItem(storageKey())); } catch { return null; }
+}
+function saveOpening(opening) {
+  try { localStorage.setItem(storageKey(), JSON.stringify(opening)); return true; } catch { return false; }
+}
+
+// Computed locally so the vote never reaches an RPC node before the reveal.
+function computeCommitment(candidateId, salt) {
+  const encoded = ethers.AbiCoder.defaultAbiCoder().encode(
+    ["uint256", "address", "address", "uint256", "bytes32"],
+    [state.chainId, state.address, state.account, candidateId, salt]
+  );
+  return ethers.keccak256(encoded);
+}
+
+function myProof() {
+  return state.proofs?.proofs?.[state.account.toLowerCase()] ?? null;
+}
+
+// ---------- connection ----------
+
+async function connect() {
+  if (!window.ethereum) {
+    note("connNote", "bad", "MetaMask was not found. Install it, and open this page through http://localhost rather than as a file.");
+    return;
+  }
+  try {
+    state.provider = new ethers.BrowserProvider(window.ethereum);
+    await state.provider.send("eth_requestAccounts", []);
+    state.signer = await state.provider.getSigner();
+    state.account = await state.signer.getAddress();
+    state.chainId = (await state.provider.getNetwork()).chainId;
+
+    $("accountLabel").textContent = `${state.account} (chain ${state.chainId})`;
+    $("connectBtn").textContent = "Connected";
+    $("connectBtn").disabled = true;
+    $("loadBtn").disabled = false;
+    note("connNote", "", "");
+
+    window.ethereum.on("accountsChanged", () => location.reload());
+    window.ethereum.on("chainChanged", () => location.reload());
+
+    if ($("addressInput").value.trim()) await loadElection();
+  } catch (e) {
+    note("connNote", "bad", errorText(e));
+  }
+}
+
+async function loadElection() {
+  const address = $("addressInput").value.trim();
+  if (!ethers.isAddress(address)) {
+    note("connNote", "bad", "That is not a valid contract address.");
+    return;
+  }
+  try {
+    const code = await state.provider.getCode(address);
+    if (code === "0x") {
+      note("connNote", "bad", "No contract found at that address on this network. Check MetaMask is on the right network.");
+      return;
+    }
+    state.address = ethers.getAddress(address);
+    state.contract = new ethers.Contract(state.address, ABI, state.signer);
+
+    const count = Number(await state.contract.candidateCount());
+    state.candidates = [];
+    for (let i = 0; i < count; i++) state.candidates.push(await state.contract.candidateName(i));
+    state.commitDeadline = Number(await state.contract.commitDeadline());
+    state.revealDeadline = Number(await state.contract.revealDeadline());
+
+    try { localStorage.setItem("crv:lastAddress", state.address); } catch {}
+    note("connNote", "ok", "Election loaded.");
+    ["statusCard", "voteCard", "resultsCard"].forEach((id) => $(id).classList.remove("hidden"));
+    $("commitEnds").textContent = formatTime(state.commitDeadline);
+    $("revealEnds").textContent = formatTime(state.revealDeadline);
+    await refresh();
+  } catch (e) {
+    note("connNote", "bad", `Could not load the election: ${errorText(e)}`);
+  }
+}
+
+// ---------- rendering ----------
+
+async function refresh() {
+  if (!state.contract || state.busy) return;
+  try {
+    const c = state.contract;
+    const [phase, committed, revealedCount, tally, mine, mineRevealed] = await Promise.all([
+      c.phase(), c.totalCommitted(), c.totalRevealed(), c.results(),
+      c.commitments(state.account), c.revealed(state.account),
+    ]);
+    state.phase = Number(phase);
+    state.myCommitment = mine;
+    state.myRevealed = mineRevealed;
+
+    document.querySelectorAll(".phase").forEach((p) =>
+      p.classList.toggle("active", Number(p.dataset.phase) === state.phase));
+    $("totalCommitted").textContent = committed.toString();
+    $("totalRevealed").textContent = revealedCount.toString();
+
+    let winners = null;
+    if (state.phase === 2) winners = (await c.winners()).map(Number);
+
+    renderResults(tally.map(Number), winners);
+    // Only rebuild the voting form when something changed, so the periodic
+    // refresh does not wipe a candidate the voter has just selected.
+    const voteKey = [state.phase, state.myCommitment, state.myRevealed, Boolean(myProof())].join("|");
+    if (voteKey !== state.voteKey) {
+      state.voteKey = voteKey;
+      renderVote();
+    }
+    tick();
+  } catch (e) {
+    note("voteNote", "bad", `Could not refresh: ${errorText(e)}`);
+  }
+}
+
+function tick() {
+  if (!state.contract) return;
+  const now = Math.floor(Date.now() / 1000);
+  if (state.phase === 0) $("countdown").textContent = formatDuration(state.commitDeadline - now);
+  else if (state.phase === 1) $("countdown").textContent = formatDuration(state.revealDeadline - now);
+  else $("countdown").textContent = "Election finished";
+}
+
+function renderResults(tally, winners) {
+  const body = $("resultsBody");
+  body.replaceChildren();
+  const total = tally.reduce((a, b) => a + b, 0);
+
+  $("resultsHint").textContent =
+    state.phase === 0 ? "Hidden until the reveal phase. Only commitments exist on-chain right now."
+    : state.phase === 1 ? "Partial. Votes appear here as voters reveal them."
+    : winners.length > 1 ? "Final result: tie."
+    : `Final result: ${state.candidates[winners[0]]} wins.`;
+
+  state.candidates.forEach((name, i) => {
+    const pct = total ? Math.round((tally[i] / total) * 100) : 0;
+    const fill = el("div");
+    fill.style.width = `${pct}%`;
+    body.append(
+      el("div", { class: "bar-row" },
+        el("div", { class: "bar-label" },
+          el("span", { text: name + (winners?.includes(i) && total ? "  ✓" : "") }),
+          el("span", { class: "mono", text: `${tally[i]} (${pct}%)` })),
+        el("div", { class: "bar" }, fill))
+    );
+  });
+}
+
+function renderVote() {
+  const body = $("voteBody");
+  body.replaceChildren();
+  const hasCommitted = state.myCommitment !== ZERO;
+  const opening = loadOpening();
+
+  if (state.phase === 2) {
+    body.append(el("p", { text: state.myRevealed ? "Your vote was counted." : "Voting is closed." }));
+    return;
+  }
+
+  if (state.phase === 0) {
+    if (hasCommitted) {
+      body.append(el("p", { text: "Your vote is committed. Come back after the commit phase ends to reveal it." }));
+      if (opening) body.append(backupBlock(opening));
+      return;
+    }
+    if (!myProof()) {
+      body.append(
+        el("p", { text: "No eligibility proof was found for this address. If you are on the voter list, load the proofs.json file." }),
+        proofPicker());
+      return;
+    }
+    body.append(commitForm());
+    return;
+  }
+
+  // Reveal phase
+  if (state.myRevealed) {
+    body.append(el("p", { text: "Your vote has been revealed and counted." }));
+    return;
+  }
+  if (!hasCommitted) {
+    body.append(el("p", { text: "This address did not commit a vote during the commit phase, so it cannot vote in this election." }));
+    return;
+  }
+  body.append(revealForm(opening));
+}
+
+function backupBlock(opening) {
+  return el("div", { class: "note warn" },
+    el("div", { text: "Back up your salt. Without it you cannot reveal, and your vote will not count." }),
+    el("div", { class: "mono", text: `candidate: ${opening.candidateId} (${state.candidates[opening.candidateId] ?? "?"})` }),
+    el("div", { class: "mono", text: `salt: ${opening.salt}` }));
+}
+
+function proofPicker() {
+  const input = el("input", { type: "file", accept: ".json,application/json", "aria-label": "Load proofs.json" });
+  input.addEventListener("change", async () => {
+    try {
+      const parsed = JSON.parse(await input.files[0].text());
+      if (!parsed || typeof parsed.proofs !== "object") throw new Error("bad file");
+      state.proofs = parsed;
+      note("voteNote", myProof() ? "ok" : "warn",
+        myProof() ? "Proof loaded." : "That file has no proof for this address.");
+      renderVote();
+    } catch {
+      note("voteNote", "bad", "That file is not a valid proofs.json.");
+    }
+  });
+  return input;
+}
+
+function commitForm() {
+  const fieldset = el("fieldset", { class: "choices" }, el("legend", { class: "muted small", text: "Choose one candidate" }));
+  state.candidates.forEach((name, i) => {
+    fieldset.append(el("label", { class: "choice" },
+      el("input", { type: "radio", name: "candidate", value: String(i) }),
+      el("span", { text: name })));
+  });
+  const btn = el("button", { text: "Commit vote" });
+  btn.addEventListener("click", () => doCommit(btn));
+  return el("div", {}, fieldset, btn,
+    el("p", { class: "muted small", text: "Your choice is hashed with a random salt in this browser. Only the hash is sent. It cannot be changed afterwards." }));
+}
+
+function revealForm(opening) {
+  const wrap = el("div");
+  const savedMatches = opening && computeCommitment(opening.candidateId, opening.salt) === state.myCommitment;
+
+  if (savedMatches) {
+    wrap.append(el("p", { text: `Ready to reveal your vote for ${state.candidates[opening.candidateId]}.` }));
+    const btn = el("button", { text: "Reveal vote" });
+    btn.addEventListener("click", () => doReveal(btn, opening.candidateId, opening.salt));
+    wrap.append(btn);
+    return wrap;
+  }
+
+  wrap.append(el("p", { text: "No saved vote was found in this browser. Enter the candidate and salt you backed up." }));
+  const select = el("select", { "aria-label": "Candidate" });
+  state.candidates.forEach((name, i) => select.append(el("option", { value: String(i), text: name })));
+  const saltInput = el("input", { type: "text", placeholder: "Salt (0x + 64 hex characters)", "aria-label": "Salt", spellcheck: "false" });
+  const btn = el("button", { text: "Reveal vote" });
+  btn.addEventListener("click", () => {
+    const salt = saltInput.value.trim();
+    if (!ethers.isHexString(salt, 32)) { note("voteNote", "bad", "The salt must be 0x followed by 64 hex characters."); return; }
+    const candidateId = Number(select.value);
+    if (computeCommitment(candidateId, salt) !== state.myCommitment) {
+      note("voteNote", "bad", ERROR_TEXT.CommitmentMismatch);
+      return;
+    }
+    doReveal(btn, candidateId, salt);
+  });
+  wrap.append(el("div", { class: "row" }, el("div", { class: "grow" }, select), el("div", { class: "grow" }, saltInput)),
+    el("div", { style: "margin-top:12px" }, btn));
+  return wrap;
+}
+
+// ---------- transactions ----------
+
+async function doCommit(btn) {
+  const picked = document.querySelector('input[name="candidate"]:checked');
+  if (!picked) { note("voteNote", "warn", "Pick a candidate first."); return; }
+  const candidateId = Number(picked.value);
+  const salt = ethers.hexlify(ethers.randomBytes(32));
+  const commitment = computeCommitment(candidateId, salt);
+
+  // Save before sending so the salt cannot be lost if the tab closes mid-transaction.
+  const saved = saveOpening({ candidateId, salt });
+
+  state.busy = true;
+  btn.disabled = true;
+  try {
+    note("voteNote", "warn", "Confirm the transaction in MetaMask...");
+    const tx = await state.contract.commit(commitment, myProof());
+    note("voteNote", "warn", "Waiting for the transaction to be mined...");
+    await tx.wait();
+    note("voteNote", "ok", saved
+      ? "Vote committed. Your salt is saved in this browser; back it up too."
+      : `Vote committed, but the salt could not be saved in this browser. Write it down now: ${salt}`);
+  } catch (e) {
+    note("voteNote", "bad", errorText(e));
+  } finally {
+    state.busy = false;
+    btn.disabled = false;
+    await refresh();
+  }
+}
+
+async function doReveal(btn, candidateId, salt) {
+  state.busy = true;
+  btn.disabled = true;
+  try {
+    note("voteNote", "warn", "Confirm the transaction in MetaMask...");
+    const tx = await state.contract.reveal(candidateId, salt);
+    note("voteNote", "warn", "Waiting for the transaction to be mined...");
+    await tx.wait();
+    note("voteNote", "ok", "Vote revealed and counted.");
+  } catch (e) {
+    note("voteNote", "bad", errorText(e));
+  } finally {
+    state.busy = false;
+    btn.disabled = false;
+    await refresh();
+  }
+}
+
+// ---------- startup ----------
+
+$("connectBtn").addEventListener("click", connect);
+$("loadBtn").addEventListener("click", loadElection);
+
+const fromUrl = new URLSearchParams(location.search).get("address");
+let last = null;
+try { last = localStorage.getItem("crv:lastAddress"); } catch {}
+$("addressInput").value = fromUrl || last || "";
+
+fetch("proofs.json")
+  .then((r) => (r.ok ? r.json() : null))
+  .then((p) => { if (p && typeof p.proofs === "object") { state.proofs = p; if (state.contract) renderVote(); } })
+  .catch(() => {});
+
+setInterval(tick, 1000);
+setInterval(refresh, 15000);
+</script>
+</body>
+</html>
